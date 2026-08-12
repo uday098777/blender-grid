@@ -1,291 +1,208 @@
-import { useState, useEffect, useRef, Suspense } from 'react'
-import { Canvas, useLoader } from '@react-three/fiber'
-import { OrbitControls, Html, useProgress } from '@react-three/drei'
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { Suspense, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Canvas } from '@react-three/fiber'
+import { OrbitControls, useGLTF } from '@react-three/drei'
 import * as THREE from 'three'
 
-// ---- GLB Model with error handling ----
-function GLBModel({ url, position = [0, 0, 0], rotation = [0, 0, 0], scale = 1, onClick, interactive = true, label = '3D Model' }) {
-  const [state, setState] = useState({ status: 'loading', model: null })
+import bookUrl from '../attached_assets/book_of_pirate_rules_-_week_5_1786555426895.glb'
+import compassUrl from '../attached_assets/jack_sparrows_compass_1786555420123.glb'
+import mapUrl from '../attached_assets/pirate_map_1786555434471.glb'
+import pearlUrl from '../attached_assets/the_black_pearl_1786555441556.glb'
 
-  useEffect(() => {
-    let cancelled = false
-    const loader = new GLTFLoader()
-    loader.load(
-      url,
-      (gltf) => {
-        if (!cancelled) setState({ status: 'loaded', model: gltf.scene })
-      },
-      undefined,
-      (err) => {
-        if (!cancelled) setState({ status: 'error', model: null })
-      }
-    )
-    return () => { cancelled = true }
-  }, [url])
+const sceneBackground = '#080b11'
 
-  if (state.status === 'loading') return null
+function Model({ url, targetSize, position = [0, 0, 0], rotation = [0, 0, 0], onClick }) {
+  const { scene } = useGLTF(url)
+  const model = useMemo(() => scene.clone(true), [scene])
+  const modelRef = useRef()
 
-  if (state.status === 'error' || !state.model) {
-    return <FallbackModel position={position} scale={scale} onClick={onClick} label={label} />
-  }
+  // The uploaded models have different native units. Fit each original model
+  // to the scene without changing its geometry or materials.
+  useLayoutEffect(() => {
+    if (!modelRef.current) return
+
+    const bounds = new THREE.Box3().setFromObject(modelRef.current)
+    const size = bounds.getSize(new THREE.Vector3())
+    const center = bounds.getCenter(new THREE.Vector3())
+    const largestSide = Math.max(size.x, size.y, size.z)
+
+    modelRef.current.position.set(-center.x, -center.y, -center.z)
+    modelRef.current.scale.setScalar(targetSize / largestSide)
+  }, [model, targetSize])
 
   return (
     <group
       position={position}
       rotation={rotation}
-      scale={scale}
-      onClick={interactive ? onClick : undefined}
-      onPointerOver={interactive ? (e) => { e.stopPropagation(); document.body.style.cursor = 'pointer' } : undefined}
-      onPointerOut={interactive ? () => { document.body.style.cursor = 'auto' } : undefined}
-    >
-      <primitive object={state.model} />
-    </group>
-  )
-}
-
-// ---- Fallback 3D object when GLB can't load ----
-function FallbackModel({ position = [0, 0, 0], scale = 1, onClick, label = '3D Model' }) {
-  return (
-    <group
-      position={position}
-      scale={scale}
       onClick={onClick}
-      onPointerOver={(e) => { e.stopPropagation(); document.body.style.cursor = 'pointer' }}
-      onPointerOut={() => { document.body.style.cursor = 'auto' }}
+      onPointerOver={onClick ? () => { document.body.style.cursor = 'pointer' } : undefined}
+      onPointerOut={onClick ? () => { document.body.style.cursor = 'default' } : undefined}
     >
-      <mesh castShadow receiveShadow>
-        <boxGeometry args={[1.5, 0.3, 1]} />
-        <meshStandardMaterial color="#8b6f3a" roughness={0.8} metalness={0.1} />
-      </mesh>
-      <mesh position={[0, 0.18, 0]}>
-        <boxGeometry args={[1.4, 0.05, 0.9]} />
-        <meshStandardMaterial color="#d4b87a" roughness={0.6} />
-      </mesh>
-      <Html center distanceFactor={8} position={[0, 0.6, 0]}>
-        <div style={{
-          background: 'rgba(10,14,23,0.85)',
-          color: '#e8d5a0',
-          padding: '8px 16px',
-          borderRadius: '8px',
-          border: '1px solid #c9a84c',
-          fontSize: '14px',
-          whiteSpace: 'nowrap',
-          fontFamily: 'Georgia, serif',
-          pointerEvents: 'none',
-        }}>
-          {label} — Click to continue
-        </div>
-      </Html>
+      <group ref={modelRef}>
+        <primitive object={model} />
+      </group>
     </group>
   )
 }
 
-// ---- Loading indicator (auto-hides when nothing is loading) ----
-function Loader() {
-  const { progress, active } = useProgress()
-  if (!active && progress >= 100) return null
+function Lights() {
   return (
-    <Html center>
-      <div style={{
-        background: 'rgba(10,14,23,0.9)',
-        color: '#e8d5a0',
-        padding: '16px 24px',
-        borderRadius: '12px',
-        border: '1px solid #c9a84c',
-        fontSize: '16px',
-        fontFamily: 'Georgia, serif',
-        textAlign: 'center',
-      }}>
-        <div style={{ fontSize: '24px', marginBottom: '8px' }}>⚓</div>
-        Loading... {Math.round(progress)}%
-      </div>
-    </Html>
+    <>
+      <ambientLight intensity={0.8} />
+      <directionalLight position={[4, 7, 6]} intensity={1.8} />
+      <directionalLight position={[-5, 2, -4]} intensity={0.55} color="#c58f45" />
+    </>
   )
 }
 
-// ---- Stage 1: Book of Pirate Rules (full page) ----
-function StageBook({ bookUrl, onBookClick }) {
+function BookScene({ onBookClick }) {
   return (
-    <Canvas shadows camera={{ position: [0, 1, 4], fov: 45 }} style={{ width: '100%', height: '100%' }}>
-      <ambientLight intensity={0.6} />
-      <directionalLight position={[5, 8, 5]} intensity={1.2} castShadow />
-      <directionalLight position={[-5, 3, -5]} intensity={0.4} color="#c9a84c" />
+    <Canvas
+      dpr={[1, 2]}
+      camera={{ position: [0, 0, 5.8], fov: 42 }}
+      gl={{ antialias: true, alpha: true }}
+    >
+      <Lights />
       <Suspense fallback={null}>
-        <GLBModel url={bookUrl} scale={1.5} onClick={onBookClick} label="Book of Pirate Rules" />
+        <Model url={bookUrl} targetSize={3.7} onClick={onBookClick} />
       </Suspense>
-      <OrbitControls enablePan={false} minDistance={2.5} maxDistance={6} maxPolarAngle={Math.PI / 1.8} />
-      <Suspense fallback={null}><Loader /></Suspense>
+      <OrbitControls
+        enablePan={false}
+        minDistance={4.2}
+        maxDistance={7}
+        minPolarAngle={Math.PI / 2.5}
+        maxPolarAngle={Math.PI / 1.7}
+      />
     </Canvas>
   )
 }
 
-// ---- Stage 2: Book opened full page (zoomed) ----
-function StageBookOpen({ bookUrl, onBookClick }) {
+function MapScene() {
   return (
-    <Canvas shadows camera={{ position: [0, 0.5, 2.5], fov: 50 }} style={{ width: '100%', height: '100%' }}>
-      <ambientLight intensity={0.6} />
-      <directionalLight position={[3, 6, 4]} intensity={1.5} castShadow />
-      <pointLight position={[-2, 2, 2]} intensity={0.5} color="#ffcc66" />
+    <Canvas
+      dpr={[1, 2]}
+      camera={{ position: [0, 0.1, 7], fov: 43 }}
+      gl={{ antialias: true, alpha: true }}
+    >
+      <Lights />
+      <pointLight position={[0, 1.5, 3]} intensity={0.65} color="#f0bd69" />
       <Suspense fallback={null}>
-        <GLBModel
-          url={bookUrl}
-          scale={2}
-          position={[0, -0.2, 0]}
-          onClick={onBookClick}
-          label="Book Opened — Click to reveal the Map"
-        />
-      </Suspense>
-      <OrbitControls enablePan={false} minDistance={1.5} maxDistance={4} maxPolarAngle={Math.PI / 1.8} />
-      <Suspense fallback={null}><Loader /></Suspense>
-    </Canvas>
-  )
-}
-
-// ---- Stage 3: Pirate Map (full page, vertical) + Black Pearl (bottom, small) ----
-function StageMap({ mapUrl, onMapClick, pearlUrl }) {
-  return (
-    <Canvas shadows camera={{ position: [0, 2, 5], fov: 45 }} style={{ width: '100%', height: '100%' }}>
-      <ambientLight intensity={0.6} />
-      <directionalLight position={[5, 10, 5]} intensity={1.3} castShadow />
-      <pointLight position={[-3, 5, -3]} intensity={0.3} color="#c9a84c" />
-      <Suspense fallback={null}>
-        <GLBModel
-          url={mapUrl}
-          position={[0, 0.5, 0]}
-          scale={1.8}
-          onClick={onMapClick}
-          label="Pirate Map — Click to summon the Black Pearl"
-        />
-        <GLBModel
+        <Model url={mapUrl} targetSize={3.45} position={[0, 0.75, 0]} />
+        <Model
           url={pearlUrl}
-          position={[2.5, -1.8, -0.5]}
-          rotation={[0, -0.5, 0]}
-          scale={0.3}
-          interactive={false}
-          label="The Black Pearl"
+          targetSize={2.15}
+          position={[0, -2.05, -0.15]}
+          rotation={[0, -0.35, 0]}
         />
+        <Model url={compassUrl} targetSize={0.92} position={[0, 2.45, 0.25]} />
       </Suspense>
-      <OrbitControls enablePan={false} minDistance={3} maxDistance={8} maxPolarAngle={Math.PI / 1.7} />
-      <Suspense fallback={null}><Loader /></Suspense>
+      <OrbitControls
+        enablePan={false}
+        minDistance={5.2}
+        maxDistance={9}
+        minPolarAngle={Math.PI / 2.7}
+        maxPolarAngle={Math.PI / 1.65}
+      />
     </Canvas>
   )
 }
 
-// ---- Main App ----
+function Loading() {
+  return <div className="loading" aria-label="Loading 3D model" />
+}
+
 export default function App() {
-  const [stage, setStage] = useState(0)
-  const [transitioning, setTransitioning] = useState(false)
-
-  const bookUrl = '/assets/book_of_pirate_rules_-_week_5.glb'
-  const mapUrl = '/assets/pirate_map.glb'
-  const pearlUrl = '/assets/the_black_pearl.glb'
-
-  const handleTransition = (nextStage) => {
-    setTransitioning(true)
-    setTimeout(() => {
-      setStage(nextStage)
-      setTransitioning(false)
-    }, 600)
-  }
+  const [stage, setStage] = useState('book')
 
   return (
-    <div style={{ width: '100vw', height: '100vh', position: 'relative', overflow: 'hidden' }}>
-      {/* Background */}
-      <div style={{
-        position: 'absolute', inset: 0,
-        background: stage === 2
-          ? 'radial-gradient(ellipse at center, #1a2a3a 0%, #0a0e17 70%)'
-          : 'radial-gradient(ellipse at center, #1a1410 0%, #0a0805 70%)',
-        transition: 'background 0.6s ease',
-      }} />
-
-      {/* 3D Canvas */}
-      <div style={{
-        position: 'absolute', inset: 0,
-        opacity: transitioning ? 0 : 1,
-        transition: 'opacity 0.6s ease',
-      }}>
-        {stage === 0 && <StageBook bookUrl={bookUrl} onBookClick={() => handleTransition(1)} />}
-        {stage === 1 && <StageBookOpen bookUrl={bookUrl} onBookClick={() => handleTransition(2)} />}
-        {stage === 2 && <StageMap mapUrl={mapUrl} onMapClick={() => {}} pearlUrl={pearlUrl} />}
+    <main className="pirate-world">
+      <div className="scene">
+        <Suspense fallback={<Loading />}>
+          {stage === 'book' ? (
+            <BookScene onBookClick={() => setStage('map')} />
+          ) : (
+            <MapScene />
+          )}
+        </Suspense>
       </div>
 
-      {/* Title bar */}
-      <div style={{
-        position: 'absolute', top: 0, left: 0, right: 0, padding: '20px 30px',
-        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-        pointerEvents: 'none', zIndex: 10,
-      }}>
-        <h1 style={{
-          color: '#c9a84c',
-          fontSize: '24px',
-          fontFamily: 'Georgia, serif',
-          textShadow: '2px 2px 4px rgba(0,0,0,0.8)',
-          letterSpacing: '1px',
-        }}>
-          ☠ Pirate's Quest
-        </h1>
-        <div style={{ display: 'flex', gap: '8px' }}>
-          {['Book', 'Book Open', 'Map & Pearl'].map((label, i) => (
-            <div key={i} style={{
-              width: '30px', height: '4px', borderRadius: '2px',
-              background: stage >= i ? '#c9a84c' : 'rgba(201,168,76,0.3)',
-              transition: 'background 0.3s ease',
-            }} />
-          ))}
-        </div>
-      </div>
-
-      {/* Bottom hint */}
-      <div style={{
-        position: 'absolute', bottom: 30, left: 0, right: 0,
-        textAlign: 'center', pointerEvents: 'none', zIndex: 10,
-      }}>
-        <p style={{
-          color: 'rgba(232,213,160,0.7)',
-          fontSize: '15px',
-          fontFamily: 'Georgia, serif',
-          textShadow: '1px 1px 2px rgba(0,0,0,0.8)',
-          animation: 'pulse 2s ease-in-out infinite',
-        }}>
-          {stage === 0 && '⚓ Click on the Book of Pirate Rules to open it'}
-          {stage === 1 && '📜 Click the book to reveal the Pirate Map'}
-          {stage === 2 && '🗺️ Explore the Pirate Map — The Black Pearl awaits below'}
-        </p>
-      </div>
-
-      {/* Back button */}
-      {stage > 0 && (
+      {stage === 'map' && (
         <button
-          onClick={() => handleTransition(stage - 1)}
-          style={{
-            position: 'absolute', top: 70, left: 30,
-            background: 'rgba(10,14,23,0.7)',
-            color: '#c9a84c',
-            border: '1px solid #c9a84c',
-            borderRadius: '8px',
-            padding: '8px 16px',
-            fontSize: '14px',
-            fontFamily: 'Georgia, serif',
-            cursor: 'pointer',
-            pointerEvents: 'auto',
-            zIndex: 20,
-            transition: 'all 0.2s ease',
-          }}
-          onMouseEnter={(e) => e.target.style.background = 'rgba(201,168,76,0.2)'}
-          onMouseLeave={(e) => e.target.style.background = 'rgba(10,14,23,0.7)'}
+          className="back-button"
+          type="button"
+          onClick={() => setStage('book')}
+          aria-label="Return to the book"
         >
-          ← Back
+          ‹
         </button>
       )}
 
       <style>{`
-        @keyframes pulse {
-          0%, 100% { opacity: 0.7; }
-          50% { opacity: 1; }
+        :root {
+          background: ${sceneBackground};
+        }
+
+        .pirate-world {
+          width: 100vw;
+          height: 100vh;
+          overflow: hidden;
+          position: relative;
+          background:
+            radial-gradient(ellipse at 50% 42%, #17202b 0%, #0b1018 48%, ${sceneBackground} 100%);
+        }
+
+        .scene {
+          position: absolute;
+          inset: 0;
+        }
+
+        .scene canvas {
+          display: block;
+          width: 100% !important;
+          height: 100% !important;
+        }
+
+        .loading {
+          position: absolute;
+          inset: 0;
+          background: ${sceneBackground};
+        }
+
+        .back-button {
+          position: absolute;
+          top: 22px;
+          left: 24px;
+          z-index: 3;
+          width: 42px;
+          height: 42px;
+          border: 1px solid rgba(214, 166, 81, 0.58);
+          border-radius: 50%;
+          background: rgba(8, 11, 17, 0.5);
+          color: #d6a651;
+          font: 32px/36px Georgia, serif;
+          cursor: pointer;
+          opacity: 0.72;
+          transition: opacity 180ms ease, background 180ms ease;
+        }
+
+        .back-button:hover,
+        .back-button:focus-visible {
+          opacity: 1;
+          background: rgba(31, 37, 45, 0.8);
+          outline: none;
+        }
+
+        @media (max-width: 600px) {
+          .back-button {
+            top: 14px;
+            left: 14px;
+          }
         }
       `}</style>
-    </div>
+    </main>
   )
 }
+
+useGLTF.preload(bookUrl)
+useGLTF.preload(compassUrl)
+useGLTF.preload(mapUrl)
+useGLTF.preload(pearlUrl)
